@@ -1,0 +1,109 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Player {
+  id              String       @id @default(cuid())
+  slug            String       @unique
+  nickname        String
+  riotId          String       @unique
+  mainRole        String
+  preferredAgents String[]
+  mechanics       Int
+  gameSense       Int
+  utility         Int
+  comms           Int
+  stability       Int
+  overallPower    Float
+  isCaptain       Boolean      @default(false)
+  canCoach        Boolean      @default(false)
+  active          Boolean      @default(true)
+  teamMembers     TeamMember[]
+}
+
+model Team {
+  id            String       @id @default(cuid())
+  name          String
+  eventId       String
+  seed          Int?
+  coachPlayerId String?
+  event         Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  members       TeamMember[]
+}
+
+model TeamMember {
+  id       String @id @default(cuid())
+  teamId   String
+  playerId String
+  roleTag  String?
+  team     Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  player   Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, playerId])
+}
+
+model Event {
+  id                String   @id @default(cuid())
+  seasonId          String?
+  title             String
+  slug              String   @unique
+  eventType         String
+  teamCount         Int
+  formatType        String
+  seriousnessLevel  String
+  timeBudgetMinutes Int
+  status            String   @default("draft")
+  happenedAt        DateTime?
+  season            Season?  @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  teams             Team[]
+  matches           Match[]
+}
+
+model Match {
+  id         String @id @default(cuid())
+  eventId    String
+  roundName  String
+  matchIndex Int
+  teamAId    String?
+  teamBId    String?
+  modeType   String
+  mapName    String?
+  rulesetId  String?
+  result     String?
+  event      Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+}
+
+model Ruleset {
+  id           String @id @default(cuid())
+  name         String
+  category     String
+  modeBase     String
+  modifiers    Json
+  rankedEffect String
+}
+
+model Season {
+  id      String        @id @default(cuid())
+  slug    String        @unique
+  label   String
+  theme   String
+  story   String
+  events  Event[]
+  stories SeasonStory[]
+}
+
+model SeasonStory {
+  id          String   @id @default(cuid())
+  seasonId    String
+  title       String
+  chapterType String
+  coverImage  String?
+  bodyMd      String
+  happenedAt  DateTime
+  season      Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+}
