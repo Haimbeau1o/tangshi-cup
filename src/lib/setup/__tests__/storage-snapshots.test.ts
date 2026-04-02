@@ -9,6 +9,7 @@ type StorageRecord = Record<string, string>;
 
 function installWindowMock(initialState: StorageRecord = {}) {
   const store = new Map(Object.entries(initialState));
+  const dispatchEvent = vi.fn(() => true);
 
   const windowMock = {
     localStorage: {
@@ -24,12 +25,14 @@ function installWindowMock(initialState: StorageRecord = {}) {
     },
     addEventListener() {},
     removeEventListener() {},
-    dispatchEvent() {
-      return true;
-    },
+    dispatchEvent,
   };
 
   vi.stubGlobal("window", windowMock);
+
+  return {
+    dispatchEvent,
+  };
 }
 
 function makePublishedSetup(): PublishedSetup {
@@ -140,5 +143,49 @@ describe("setup storage snapshots", () => {
     expect(normalizedSetup.generatedTeams).toHaveLength(3);
     expect(normalizedSetup.flow?.teams).toHaveLength(3);
     expect(normalizedSetup.flow?.phases.length).toBeGreaterThan(0);
+  });
+
+  it("deletes a published setup and refreshes the snapshot", async () => {
+    const firstPublishedSetup = makePublishedSetup();
+    const secondPublishedSetup = {
+      ...makePublishedSetup(),
+      id: "second-setup",
+      event: {
+        ...makePublishedSetup().event,
+        slug: "s2-second-event",
+        title: "唐氏杯 S2 第二战",
+      },
+      publishedAt: "2026-03-31T16:05:00.000Z",
+    };
+
+    installWindowMock({
+      "tangshi-cup:published-setups": JSON.stringify([firstPublishedSetup, secondPublishedSetup]),
+    });
+
+    const { deletePublishedSetup, getPublishedSetupsSnapshot } = await import("@/lib/setup/storage");
+
+    deletePublishedSetup(firstPublishedSetup.event.slug);
+
+    const remaining = getPublishedSetupsSnapshot();
+
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].event.slug).toBe("s2-second-event");
+  });
+
+  it("does not dispatch a storage change event when the draft payload is unchanged", async () => {
+    const draft = createSetupDraft({
+      templateId: "tri-finals",
+      players: mockPlayers,
+    });
+
+    const { dispatchEvent } = installWindowMock({
+      "tangshi-cup:season-setup-draft": JSON.stringify(draft),
+    });
+
+    const { saveSetupDraft } = await import("@/lib/setup/storage");
+
+    saveSetupDraft(draft);
+
+    expect(dispatchEvent).not.toHaveBeenCalled();
   });
 });

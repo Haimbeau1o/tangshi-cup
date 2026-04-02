@@ -1,4 +1,5 @@
 import type {
+  EventAwards,
   PublishedSetup,
   SeasonSetupDraft,
   Team,
@@ -66,6 +67,12 @@ function normalizeMatch(match: TournamentMatch): TournamentMatch {
   return {
     ...match,
     score,
+    history: Array.isArray(match.history)
+      ? match.history.map((entry) => ({
+          ...entry,
+          score: { ...entry.score },
+        }))
+      : [],
     status: normalizedStatus,
   };
 }
@@ -116,6 +123,7 @@ function sanitizeFlowForPersistence(flow: TournamentFlow, fallbackTeams: Team[] 
 
 function normalizeSetupDraft<T extends SeasonSetupDraft | PublishedSetup>(draft: T): T {
   const generatedTeams = draft.generatedTeams?.map(normalizeTeam);
+  const awards: EventAwards = draft.awards ?? {};
 
   return {
     ...draft,
@@ -125,6 +133,7 @@ function normalizeSetupDraft<T extends SeasonSetupDraft | PublishedSetup>(draft:
     },
     teamCustomizations: draft.teamCustomizations ?? {},
     generatedTeams,
+    awards,
     flow: draft.flow ? normalizeFlow(draft.flow, generatedTeams ?? []) : draft.flow,
   };
 }
@@ -179,11 +188,31 @@ function readRawValue(key: string) {
 
 function writeJson<T>(key: string, value: T) {
   if (!canUseStorage()) {
-    return;
+    return false;
   }
 
-  window.localStorage.setItem(key, JSON.stringify(value));
+  const nextRaw = JSON.stringify(value);
+
+  if (window.localStorage.getItem(key) === nextRaw) {
+    return false;
+  }
+
+  window.localStorage.setItem(key, nextRaw);
   window.dispatchEvent(new Event(STORAGE_EVENT));
+
+  return true;
+}
+
+function serializeNormalizedDraft(draft: SeasonSetupDraft | null) {
+  if (!draft) {
+    return null;
+  }
+
+  return JSON.stringify(sanitizeSetupForPersistence(draft));
+}
+
+function serializeNormalizedPublishedSetups(setups: PublishedSetup[]) {
+  return JSON.stringify(setups.map((setup) => sanitizeSetupForPersistence(setup)));
 }
 
 export function loadSetupDraft() {
@@ -191,11 +220,21 @@ export function loadSetupDraft() {
 }
 
 export function saveSetupDraft(draft: SeasonSetupDraft) {
-  writeJson(DRAFT_KEY, sanitizeSetupForPersistence(draft));
+  const sanitizedDraft = sanitizeSetupForPersistence(draft);
+
+  if (serializeNormalizedDraft(getSetupDraftSnapshot()) === JSON.stringify(sanitizedDraft)) {
+    return false;
+  }
+
+  return writeJson(DRAFT_KEY, sanitizedDraft);
 }
 
 export function clearSetupDraft() {
   if (!canUseStorage()) {
+    return;
+  }
+
+  if (readRawValue(DRAFT_KEY) === null) {
     return;
   }
 
@@ -224,10 +263,28 @@ export function upsertPublishedSetup(setup: SeasonSetupDraft | PublishedSetup) {
         : existingSetup?.publishedAt ?? new Date().toISOString(),
   });
   const remainingItems = publishedSetups.filter((item) => item.event.slug !== setup.event.slug);
+  const nextPublishedSetups = [nextItem, ...remainingItems];
 
-  writeJson(PUBLISHED_KEY, [nextItem, ...remainingItems]);
+  if (serializeNormalizedPublishedSetups(publishedSetups) === serializeNormalizedPublishedSetups(nextPublishedSetups)) {
+    return nextItem;
+  }
+
+  writeJson(PUBLISHED_KEY, nextPublishedSetups);
 
   return nextItem;
+}
+
+export function deletePublishedSetup(slug: string) {
+  const publishedSetups = listPublishedSetups();
+  const remainingItems = publishedSetups.filter((item) => item.event.slug !== slug);
+
+  if (remainingItems.length === publishedSetups.length) {
+    return remainingItems;
+  }
+
+  writeJson(PUBLISHED_KEY, remainingItems);
+
+  return remainingItems;
 }
 
 export function getPublishedSetupBySlug(slug: string) {

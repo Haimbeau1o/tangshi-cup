@@ -1,13 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 
 import { GlowCard } from "@/components/ui/glow-card";
 import { Pill } from "@/components/ui/pill";
 import { SectionHeading } from "@/components/ui/section-heading";
-import { getPublishedSetupsSnapshot, getSetupDraftSnapshot, subscribeSetupStorage } from "@/lib/setup/storage";
+import { deleteChronicleEntry } from "@/lib/chronicle/storage";
+import { getNextSeasonSequence } from "@/lib/seasons/get-next-season-sequence";
+import {
+  deletePublishedSetup,
+  getPublishedSetupsSnapshot,
+  getSetupDraftSnapshot,
+  subscribeSetupStorage,
+} from "@/lib/setup/storage";
 import { setupTemplates } from "@/lib/setup/templates";
+import type { PublishedSetup } from "@/lib/types";
 import { useHydrated } from "@/lib/use-hydrated";
 
 const toneLabels = {
@@ -18,6 +26,7 @@ const toneLabels = {
 
 export function SeasonLaunchPad() {
   const isHydrated = useHydrated();
+  const [storageMessage, setStorageMessage] = useState<string | null>(null);
   const draft = useSyncExternalStore(subscribeSetupStorage, getSetupDraftSnapshot, getSetupDraftSnapshot);
   const publishedSetups = useSyncExternalStore(
     subscribeSetupStorage,
@@ -27,6 +36,24 @@ export function SeasonLaunchPad() {
 
   const latestSetup = publishedSetups[0];
   const archiveSetups = publishedSetups.slice(0, 4);
+  const nextSeasonLabel = `S${getNextSeasonSequence(publishedSetups)}`;
+  const nextSeasonDisplay = isHydrated ? nextSeasonLabel : "读取中";
+
+  function handleDeleteEvent(setup: PublishedSetup) {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const confirmed = window.confirm(`确认删除 ${setup.event.title} 的本地赛事记录吗？这会同时移除对应的编年史条目。`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    deletePublishedSetup(setup.event.slug);
+    deleteChronicleEntry(setup.event.slug);
+    setStorageMessage(`${setup.event.title} 已从本地记录中删除。`);
+  }
 
   return (
     <div className="pb-24">
@@ -63,8 +90,11 @@ export function SeasonLaunchPad() {
                 href="/setup/season?template=tri-finals"
                 className="rounded-full bg-[#ff5e3a] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#ff734f]"
               >
-                直接创建 S2
+                创建新赛季
               </Link>
+              <div className="inline-flex items-center rounded-full border border-cyan-300/20 bg-cyan-400/10 px-4 py-3 text-sm font-semibold text-cyan-100">
+                赛季编号按本地记录自动递增，当前建议 {nextSeasonDisplay}
+              </div>
               <Link
                 href="/players"
                 className="rounded-full border border-white/10 bg-white/6 px-6 py-3 text-sm font-semibold text-stone-100 transition hover:bg-white/10"
@@ -153,6 +183,7 @@ export function SeasonLaunchPad() {
           title="本地赛季记忆"
           description="这里先用浏览器本地存储做你们的赛事编年史。后续切 SQLite 时，这块数据结构可以直接平移。"
         />
+        {storageMessage ? <p className="text-sm leading-7 text-cyan-200">{storageMessage}</p> : null}
         <div className="grid gap-5 lg:grid-cols-4">
           {!isHydrated ? (
             <GlowCard className="lg:col-span-4">
@@ -170,9 +201,19 @@ export function SeasonLaunchPad() {
                   <Pill>{setup.event.bestOf.toUpperCase()}</Pill>
                   <Pill>{toneLabels[setup.event.tone]}</Pill>
                 </div>
-                <Link href={`/events/${setup.event.slug}`} className="text-sm font-semibold text-cyan-300">
-                  打开赛事控制台
-                </Link>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <Link href={`/events/${setup.event.slug}`} className="text-sm font-semibold text-cyan-300">
+                    打开赛事控制台
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteEvent(setup)}
+                    className="rounded-full border border-rose-400/25 bg-rose-400/10 px-3 py-2 text-xs font-semibold text-rose-100 transition hover:bg-rose-400/16"
+                    aria-label={`删除 ${setup.event.title}`}
+                  >
+                    删除记录
+                  </button>
+                </div>
               </GlowCard>
             ))
           ) : (

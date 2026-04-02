@@ -1,11 +1,12 @@
 import { createSetupDraft } from "@/lib/setup/create-setup-draft";
-import type { Player, SeasonSetupDraft, SetupTemplateId } from "@/lib/types";
+import type { Player, PublishedSetup, SeasonSetupDraft, SetupTemplateId } from "@/lib/types";
 
 type ResolveInitialSetupDraftInput = {
   requestedTemplateId: string | null;
   shouldResume: boolean;
   storedDraft: SeasonSetupDraft | null;
   players: Player[];
+  publishedSetups?: PublishedSetup[];
 };
 
 const validTemplateIds: SetupTemplateId[] = ["two-team-standard", "tri-finals", "four-team-carnival"];
@@ -19,6 +20,7 @@ export function resolveInitialSetupDraft({
   shouldResume,
   storedDraft,
   players,
+  publishedSetups = [],
 }: ResolveInitialSetupDraftInput) {
   if (shouldResume && storedDraft) {
     return storedDraft;
@@ -27,5 +29,6 @@ export function resolveInitialSetupDraft({
   return createSetupDraft({
     templateId: isSetupTemplateId(requestedTemplateId) ? requestedTemplateId : "tri-finals",
     players,
+    publishedSetups,
   });
 }

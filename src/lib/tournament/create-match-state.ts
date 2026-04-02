@@ -28,6 +28,7 @@ function createMatch(id: string, label: string, bestOf: TournamentMatch["bestOf"
       left: 0,
       right: 0,
     },
+    history: [],
     note,
   };
 }

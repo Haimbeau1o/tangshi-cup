@@ -102,8 +102,14 @@ export type SeasonStory = {
 
 export type ChronicleEntry = SeasonStory & {
   eventSlug: string;
+  eventTitle?: string;
   championTeamId?: string;
   championName?: string;
+  mvpPlayerId?: string;
+  mvpName?: string;
+  svpPlayerId?: string;
+  svpName?: string;
+  votingNote?: string;
   updatedAt: string;
 };
 
@@ -149,6 +155,12 @@ export type TournamentMatchResult = {
   score: TournamentMatchScore;
 };
 
+export type TournamentMatchHistoryEntry = {
+  id: string;
+  score: TournamentMatchScore;
+  updatedAt: string;
+};
+
 export type TournamentMatch = {
   id: string;
   label: string;
@@ -157,6 +169,7 @@ export type TournamentMatch = {
   kind: TournamentPhaseKind;
   slots: [TournamentMatchSlot, TournamentMatchSlot];
   score: TournamentMatchScore;
+  history?: TournamentMatchHistoryEntry[];
   note?: string;
   result?: TournamentMatchResult;
 };
@@ -223,6 +236,12 @@ export type EventSetup = {
   formatId: string;
 };
 
+export type EventAwards = {
+  mvpPlayerId?: string;
+  svpPlayerId?: string;
+  votingNote?: string;
+};
+
 export type SeasonSetupDraft = {
   id: string;
   templateId: SetupTemplateId;
@@ -236,6 +255,7 @@ export type SeasonSetupDraft = {
   teamCustomizations: Record<string, TeamCustomization>;
   generatedTeams?: Team[];
   flow?: TournamentFlow;
+  awards?: EventAwards;
   updatedAt: string;
 };
 

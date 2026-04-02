@@ -37,8 +37,14 @@ function sortEntries(entries: ChronicleEntry[]) {
 function normalizeEntry(entry: ChronicleEntry): ChronicleEntry {
   return {
     ...entry,
+    eventTitle: entry.eventTitle,
     championTeamId: entry.championTeamId,
     championName: entry.championName,
+    mvpPlayerId: entry.mvpPlayerId,
+    mvpName: entry.mvpName,
+    svpPlayerId: entry.svpPlayerId,
+    svpName: entry.svpName,
+    votingNote: entry.votingNote,
   };
 }
 
@@ -88,6 +94,14 @@ export function upsertChronicleEntry(entry: ChronicleEntry) {
   writeEntries(nextEntries);
 
   return normalizeEntry(entry);
+}
+
+export function deleteChronicleEntry(eventSlug: string) {
+  const remainingEntries = getChronicleEntriesSnapshot().filter((entry) => entry.eventSlug !== eventSlug);
+
+  writeEntries(remainingEntries);
+
+  return remainingEntries;
 }
 
 export function subscribeChronicleStorage(onChange: () => void) {

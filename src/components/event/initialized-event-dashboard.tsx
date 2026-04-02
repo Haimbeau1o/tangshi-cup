@@ -5,14 +5,25 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { resolvePublishedSetupAvatarAssets } from "@/lib/assets/resolve-avatar-assets";
 import { getAvatarAssetsSnapshot, loadAvatarAssets, subscribeAssetStorage } from "@/lib/assets/storage";
-import { upsertChronicleEntry, getChronicleEntriesSnapshot, subscribeChronicleStorage } from "@/lib/chronicle/storage";
+import { buildChronicleEntry } from "@/lib/chronicle/build-entry";
+import {
+  deleteChronicleEntry,
+  upsertChronicleEntry,
+  getChronicleEntriesSnapshot,
+  subscribeChronicleStorage,
+} from "@/lib/chronicle/storage";
 import { TournamentFlowRenderer } from "@/components/flow/tournament-flow-renderer";
 import { getPlayersSnapshot, getRuleModifiersSnapshot, subscribeContentStorage } from "@/lib/content/storage";
 import { GlowCard } from "@/components/ui/glow-card";
 import { Pill } from "@/components/ui/pill";
 import { RankChip } from "@/components/ui/rank-chip";
 import { TeamAvatar } from "@/components/ui/team-avatar";
-import { getPublishedSetupsSnapshot, subscribeSetupStorage, upsertPublishedSetup } from "@/lib/setup/storage";
+import {
+  deletePublishedSetup,
+  getPublishedSetupsSnapshot,
+  subscribeSetupStorage,
+  upsertPublishedSetup,
+} from "@/lib/setup/storage";
 import { clearMatchResult, updateMatchResult } from "@/lib/tournament/update-match-result";
 import type { PublishedSetup, TournamentMatchScore } from "@/lib/types";
 import { useHydrated } from "@/lib/use-hydrated";
@@ -60,11 +71,19 @@ export function InitializedEventDashboard({ slug }: InitializedEventDashboardPro
     () => teams.find((team) => team.id === setup?.flow?.championTeamId) ?? null,
     [setup?.flow?.championTeamId, teams],
   );
+  const participantPlayers = useMemo(
+    () =>
+      teams.flatMap((team) => team.players).filter((player, index, collection) => {
+        return collection.findIndex((item) => item.id === player.id) === index;
+      }),
+    [teams],
+  );
   const existingChronicleEntry = chronicleEntries.find((entry) => entry.eventSlug === setup?.event.slug) ?? null;
   const selectedModifiers = useMemo(
     () => (setup ? ruleModifiers.filter((modifier) => setup.ruleModifierIds.includes(modifier.id)) : []),
     [ruleModifiers, setup],
   );
+  const canSyncChronicle = Boolean(champion && setup?.awards?.mvpPlayerId && setup?.awards?.svpPlayerId);
 
   useEffect(() => {
     void loadAvatarAssets().catch(() => {
@@ -99,24 +118,53 @@ export function InitializedEventDashboard({ slug }: InitializedEventDashboardPro
     }));
   }
 
+  function handleAwardSelect(kind: "mvpPlayerId" | "svpPlayerId", playerId: string) {
+    patchPublishedSetup((current) => {
+      const nextAwards = {
+        ...current.awards,
+        [kind]: playerId,
+        votingNote: current.awards?.votingNote ?? "请先让观众完成投票，再由主持人确认 MVP / SVP 并同步编年史。",
+      };
+
+      if (kind === "mvpPlayerId" && current.awards?.svpPlayerId === playerId) {
+        nextAwards.svpPlayerId = undefined;
+      }
+
+      if (kind === "svpPlayerId" && current.awards?.mvpPlayerId === playerId) {
+        nextAwards.mvpPlayerId = undefined;
+      }
+
+      return {
+        ...current,
+        awards: nextAwards,
+      };
+    });
+  }
+
   function handleSyncChronicle() {
-    if (!setup || !champion) {
+    if (!setup || !champion || !canSyncChronicle) {
       return;
     }
 
-    upsertChronicleEntry({
-      id: `chronicle:${setup.event.slug}`,
-      eventSlug: setup.event.slug,
-      seasonSlug: setup.season.slug,
-      title: `${setup.event.title} 冠军归档`,
-      dateLabel: `${setup.season.label} / 冠军归档`,
-      summary: `${champion.name} 已被正式写入编年史，作为 ${setup.event.title} 的冠军队伍存档。`,
-      tag: "Champion",
-      championTeamId: champion.id,
-      championName: champion.name,
-      updatedAt: new Date().toISOString(),
-    });
+    upsertChronicleEntry(buildChronicleEntry({ setup, players }));
     setSyncMessage(existingChronicleEntry ? "编年史已重新同步为最新冠军结果。" : "当前冠军已同步到编年史。");
+  }
+
+  function handleDeleteEvent() {
+    if (!setup || typeof window === "undefined") {
+      return;
+    }
+
+    const confirmed = window.confirm(`确认删除 ${setup.event.title} 的本地赛事记录吗？这会同时移除对应的编年史条目。`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    deletePublishedSetup(setup.event.slug);
+    deleteChronicleEntry(setup.event.slug);
+    setSyncMessage("本地赛事记录已删除。");
+    window.location.href = "/";
   }
 
   if (!isHydrated) {
@@ -186,15 +234,23 @@ export function InitializedEventDashboard({ slug }: InitializedEventDashboardPro
                     <button
                       type="button"
                       onClick={handleSyncChronicle}
+                      disabled={!canSyncChronicle}
                       className="inline-flex rounded-full border border-cyan-300/20 bg-cyan-400/12 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-400/18"
                     >
                       {existingChronicleEntry ? "重新同步编年史" : "同步到编年史"}
                     </button>
                     <p className="text-xs leading-6 text-stone-400">
-                      冠军确认后，再由你手动归档到编年史，避免中途录分时误写历史。
+                      先等待观众投票并确认 MVP / SVP，再手动同步到编年史，避免历史信息不完整。
                     </p>
                   </div>
                 ) : null}
+                <button
+                  type="button"
+                  onClick={handleDeleteEvent}
+                  className="mt-4 inline-flex rounded-full border border-rose-400/25 bg-rose-400/10 px-4 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-400/16"
+                >
+                  删除本地赛事记录
+                </button>
                 {syncMessage ? <p className="mt-3 text-xs leading-6 text-cyan-200">{syncMessage}</p> : null}
               </div>
             </div>
@@ -223,9 +279,113 @@ export function InitializedEventDashboard({ slug }: InitializedEventDashboardPro
                 />
               </div>
             </div>
+
+            <div className="rounded-[30px] border border-white/10 bg-black/18 p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-300/80">Replay Log</p>
+                  <h2 className="mt-2 font-display text-4xl uppercase tracking-[0.08em] text-stone-50">比分回溯</h2>
+                </div>
+                <Pill>记录中间态</Pill>
+              </div>
+              <p className="mt-3 text-sm leading-7 text-stone-400">
+                这里会记录每场比赛从开局到结束的比分推进过程，编年史点击回看时也会回到这份赛事记录。
+              </p>
+              <div className="mt-5 grid gap-4 xl:grid-cols-2">
+                {setup.flow.phases.flatMap((phase) => phase.matches).map((match) => (
+                  <div key={`${match.id}-history`} className="rounded-[24px] border border-white/10 bg-white/6 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-stone-100">{match.label}</p>
+                        <p className="text-xs uppercase tracking-[0.22em] text-stone-500">{match.bestOf.toUpperCase()}</p>
+                      </div>
+                      <Pill>{match.status}</Pill>
+                    </div>
+                    <div className="mt-4 space-y-2">
+                      {match.history?.length ? (
+                        match.history.map((entry, index) => (
+                          <div
+                            key={entry.id}
+                            className="flex items-center justify-between rounded-2xl border border-white/8 bg-black/20 px-3 py-2 text-sm text-stone-300"
+                          >
+                            <span>第 {index + 1} 次录分</span>
+                            <span className="font-semibold text-stone-100">
+                              {entry.score.left}:{entry.score.right}
+                            </span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="rounded-2xl border border-dashed border-white/10 px-3 py-3 text-sm text-stone-500">
+                          当前还没有录分历史，开始录入后这里会自动积累过程。
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
           <div className="space-y-5">
+            {champion ? (
+              <div className="rounded-[30px] border border-white/10 bg-black/18 p-5">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-300/80">Awards</p>
+                <h2 className="mt-2 font-display text-4xl uppercase tracking-[0.08em] text-stone-50">赛后投票</h2>
+                <p className="mt-3 text-sm leading-7 text-stone-400">
+                  请先等待观众或群友完成投票，再由主持人在这里确认 MVP 和 SVP，确认后再同步编年史。
+                </p>
+                <div className="mt-5 space-y-5">
+                  <div>
+                    <p className="text-sm font-semibold text-stone-200">MVP</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {participantPlayers.map((player) => (
+                        <button
+                          key={`mvp-${player.id}`}
+                          type="button"
+                          onClick={() => handleAwardSelect("mvpPlayerId", player.id)}
+                          className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                            setup.awards?.mvpPlayerId === player.id
+                              ? "border-cyan-300/30 bg-cyan-400/15 text-cyan-100"
+                              : "border-white/10 bg-white/6 text-stone-300"
+                          }`}
+                        >
+                          {player.nickname}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-stone-200">SVP</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {participantPlayers
+                        .filter((player) => player.id !== setup.awards?.mvpPlayerId)
+                        .map((player) => (
+                          <button
+                            key={`svp-${player.id}`}
+                            type="button"
+                            onClick={() => handleAwardSelect("svpPlayerId", player.id)}
+                            className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                              setup.awards?.svpPlayerId === player.id
+                                ? "border-amber-300/30 bg-amber-400/15 text-amber-100"
+                                : "border-white/10 bg-white/6 text-stone-300"
+                            }`}
+                          >
+                            {player.nickname}
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                  <div className="rounded-[22px] border border-white/10 bg-white/6 p-4 text-sm leading-7 text-stone-300">
+                    当前选择：
+                    <span className="ml-2 text-stone-100">
+                      MVP {players.find((player) => player.id === setup.awards?.mvpPlayerId)?.nickname ?? "未选"} /
+                      SVP {players.find((player) => player.id === setup.awards?.svpPlayerId)?.nickname ?? "未选"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
             <div className="rounded-[30px] border border-white/10 bg-black/18 p-5">
               <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-300/80">Lineup Rail</p>
               <h2 className="mt-2 font-display text-4xl uppercase tracking-[0.08em] text-stone-50">参赛队伍</h2>

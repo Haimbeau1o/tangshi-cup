@@ -8,6 +8,7 @@ import { getAvatarAssetsSnapshot, loadAvatarAssets, saveAvatarAsset, subscribeAs
 import { RuleLibraryManager } from "@/components/content/rule-library-manager";
 import { TournamentFlowRenderer } from "@/components/flow/tournament-flow-renderer";
 import { getPlayersSnapshot, getRuleModifiersSnapshot, subscribeContentStorage } from "@/lib/content/storage";
+import { buildSeasonDefaults, deriveSeasonSlug } from "@/lib/seasons/build-season-defaults";
 import { GlowCard } from "@/components/ui/glow-card";
 import { Pill } from "@/components/ui/pill";
 import { RankChip } from "@/components/ui/rank-chip";
@@ -15,9 +16,11 @@ import { TeamAvatar } from "@/components/ui/team-avatar";
 import { buildDraftPreview, canGeneratePreview, getRequiredPlayerCount } from "@/lib/setup/build-draft-preview";
 import { resolveInitialSetupDraft } from "@/lib/setup/resolve-initial-setup-draft";
 import { sanitizeSetupDraftReferences } from "@/lib/setup/sanitize-setup-draft-references";
+import { syncGeneratedDraftIdentity } from "@/lib/setup/sync-generated-draft-identity";
 import { resolveFixedBestOf } from "@/lib/tournament/resolve-fixed-best-of";
 import {
   clearSetupDraft,
+  getPublishedSetupsSnapshot,
   getSetupDraftSnapshot,
   savePublishedSetup,
   saveSetupDraft,
@@ -87,15 +90,22 @@ export function SeasonSetupWizard({ initialTemplateId, shouldResume }: SeasonSet
   );
   const avatarAssets = useSyncExternalStore(subscribeAssetStorage, getAvatarAssetsSnapshot, getAvatarAssetsSnapshot);
   const storedDraft = useSyncExternalStore(subscribeSetupStorage, getSetupDraftSnapshot, getSetupDraftSnapshot);
+  const publishedSetups = useSyncExternalStore(
+    subscribeSetupStorage,
+    getPublishedSetupsSnapshot,
+    getPublishedSetupsSnapshot,
+  );
+  const resumeDraft = shouldResume ? storedDraft : null;
   const baseDraft = useMemo(
     () =>
       resolveInitialSetupDraft({
         requestedTemplateId: initialTemplateId,
         shouldResume,
-        storedDraft,
+        storedDraft: resumeDraft,
         players,
+        publishedSetups,
       }),
-    [initialTemplateId, players, shouldResume, storedDraft],
+    [initialTemplateId, players, publishedSetups, shouldResume, resumeDraft],
   );
   const [draftEdits, setDraftEdits] = useState<SeasonSetupDraft | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -156,14 +166,26 @@ export function SeasonSetupWizard({ initialTemplateId, shouldResume }: SeasonSet
   function patchSeasonField<K extends keyof SeasonSetupDraft["season"]>(key: K, value: SeasonSetupDraft["season"][K]) {
     setDraftEdits((current) => {
       const nextDraft = getEditableDraft(current);
+      const nextSeason = {
+        ...nextDraft.season,
+        [key]: value,
+        slug:
+          key === "label"
+            ? deriveSeasonSlug(String(value), nextDraft.season.slug)
+            : nextDraft.season.slug,
+      };
+      const syncedDraft =
+        key === "label" || key === "cupName"
+          ? syncGeneratedDraftIdentity(nextDraft, {
+              season: nextSeason,
+            })
+          : {
+              ...nextDraft,
+              season: nextSeason,
+            };
 
       return {
-        ...nextDraft,
-        season: {
-          ...nextDraft.season,
-          [key]: value,
-          slug: key === "label" || key === "name" ? toSafeSlug(String(value), nextDraft.season.slug) : nextDraft.season.slug,
-        },
+        ...syncedDraft,
         updatedAt: new Date().toISOString(),
       };
     });
@@ -190,19 +212,19 @@ export function SeasonSetupWizard({ initialTemplateId, shouldResume }: SeasonSet
       const nextDraft = getEditableDraft(current);
       const nextTemplateId =
         teamCount === 2 ? "two-team-standard" : teamCount === 3 ? "tri-finals" : "four-team-carnival";
-      const nextTone = teamCount === 4 ? "fun" : teamCount === 2 ? "serious" : "balanced";
       const nextSelected = getRecommendedPlayerIds(nextTemplateId, players.map((player) => player.id));
+      const nextDefaults = buildSeasonDefaults({
+        templateId: nextTemplateId,
+        seasonLabel: nextDraft.season.label,
+        cupName: nextDraft.season.cupName,
+        seasonSlugFallback: nextDraft.season.slug,
+      });
 
       return {
         ...nextDraft,
         templateId: nextTemplateId,
-        event: {
-          ...nextDraft.event,
-          teamCount,
-          bestOf: resolveFixedBestOf(teamCount),
-          tone: nextTone,
-          formatId: getDefaultFormatId(teamCount, nextTone),
-        },
+        season: nextDefaults.season,
+        event: nextDefaults.event,
         selectedPlayerIds: nextSelected,
         captainIds: [],
         coachIds: [],

@@ -16,6 +16,10 @@ function cloneFlow(flow: TournamentFlow): TournamentFlow {
         ...match,
         slots: match.slots.map((slot) => ({ ...slot })) as [TournamentMatchSlot, TournamentMatchSlot],
         score: { ...match.score },
+        history: match.history?.map((entry) => ({
+          ...entry,
+          score: { ...entry.score },
+        })) ?? [],
         result: match.result
           ? {
               ...match.result,
@@ -133,6 +137,7 @@ function updateDerivedSlots(flow: TournamentFlow, match: TournamentMatch) {
 
   if (slotsChanged) {
     match.score = { left: 0, right: 0 };
+    match.history = [];
     match.result = undefined;
     match.status = "pending";
   }
@@ -180,6 +185,7 @@ function recomputeTriStage(flow: TournamentFlow) {
       avatarSrc: undefined,
     })) as [TournamentMatchSlot, TournamentMatchSlot];
     finalMatch.score = { left: 0, right: 0 };
+    finalMatch.history = [];
     finalMatch.result = undefined;
     finalMatch.status = "pending";
   }

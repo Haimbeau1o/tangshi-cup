@@ -12,6 +12,10 @@ function cloneForUpdate(flow: TournamentFlow) {
         ...match,
         slots: match.slots.map((slot) => ({ ...slot })) as typeof match.slots,
         score: { ...match.score },
+        history: match.history?.map((entry) => ({
+          ...entry,
+          score: { ...entry.score },
+        })) ?? [],
         result: match.result
           ? {
               ...match.result,
@@ -21,6 +25,23 @@ function cloneForUpdate(flow: TournamentFlow) {
       })),
     })),
   };
+}
+
+function appendMatchHistory(match: TournamentFlow["phases"][number]["matches"][number], score: TournamentMatchScore) {
+  const lastEntry = match.history?.at(-1);
+
+  if (lastEntry && lastEntry.score.left === score.left && lastEntry.score.right === score.right) {
+    return;
+  }
+
+  match.history = [
+    ...(match.history ?? []),
+    {
+      id: `${match.id}-${Date.now()}-${score.left}-${score.right}`,
+      score: { ...score },
+      updatedAt: new Date().toISOString(),
+    },
+  ];
 }
 
 export function updateMatchResult(flow: TournamentFlow, matchId: string, score: TournamentMatchScore) {
@@ -35,10 +56,12 @@ export function updateMatchResult(flow: TournamentFlow, matchId: string, score: 
 
   if (!leftSlot.teamId || !rightSlot.teamId || score.left === score.right) {
     match.score = { ...score };
+    appendMatchHistory(match, score);
     return recomputeFlow(nextFlow);
   }
 
   match.score = { ...score };
+  appendMatchHistory(match, score);
 
   return recomputeFlow(nextFlow);
 }
@@ -55,6 +78,7 @@ export function clearMatchResult(flow: TournamentFlow, matchId: string) {
     left: 0,
     right: 0,
   };
+  match.history = [];
   match.result = undefined;
   match.status = "pending";
 

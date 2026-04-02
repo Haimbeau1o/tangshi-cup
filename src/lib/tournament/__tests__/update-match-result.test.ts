@@ -139,6 +139,46 @@ describe("updateMatchResult", () => {
     expect(completedFlow.championTeamId).toBe("team-1");
   });
 
+  it("records score history while a series progresses", () => {
+    const flow = createMatchState({
+      teamCount: 2,
+      bestOf: "bo3",
+      teams: [makeTeam(1, "Crimson Echo"), makeTeam(2, "Cyan Protocol")],
+    });
+
+    const firstUpdate = updateMatchResult(flow, "series-final", { left: 1, right: 0 });
+    const secondUpdate = updateMatchResult(firstUpdate, "series-final", { left: 2, right: 1 });
+    const seriesMatch = secondUpdate.phases[0].matches[0];
+
+    expect(seriesMatch.history).toHaveLength(2);
+    expect(seriesMatch.history?.map((entry) => entry.score)).toEqual([
+      { left: 1, right: 0 },
+      { left: 2, right: 1 },
+    ]);
+  });
+
+  it("clears stale downstream history when an upstream bracket result changes", () => {
+    const flow = createMatchState({
+      teamCount: 4,
+      bestOf: "bo3",
+      teams: [
+        makeTeam(1, "Crimson Echo"),
+        makeTeam(2, "Cyan Protocol"),
+        makeTeam(3, "Amber Reboot"),
+        makeTeam(4, "Ghost Stack"),
+      ],
+    });
+
+    const withUpperOne = updateMatchResult(flow, "upper-1", { left: 2, right: 0 });
+    const withUpperTwo = updateMatchResult(withUpperOne, "upper-2", { left: 2, right: 1 });
+    const withWinnersFinal = updateMatchResult(withUpperTwo, "winners-final", { left: 2, right: 1 });
+    const revisedUpperOne = updateMatchResult(withWinnersFinal, "upper-1", { left: 0, right: 2 });
+
+    const winnersFinal = revisedUpperOne.phases[1].matches[0];
+
+    expect(winnersFinal.history ?? []).toEqual([]);
+  });
+
   it("resets a live series back to 0:0 when cleared", () => {
     const flow = createMatchState({
       teamCount: 2,
